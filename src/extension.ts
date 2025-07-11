@@ -40,14 +40,33 @@ export function activate(context: vscode.ExtensionContext) {
           messages: [{ role: "user", content: prompt }],
           max_tokens: 512,
         });
-        const unitTests =
+        let aiResponse =
           response.choices[0]?.message?.content ?? "No unit tests generated.";
+        // Extract only TypeScript code blocks from the response
+        const tsBlocks = Array.from(
+          aiResponse.matchAll(/```typescript([\s\S]*?)```/g)
+        ).map((match) => match[1].trim());
+        let testFileContent =
+          tsBlocks.length > 0 ? tsBlocks.join("\n\n") : aiResponse;
 
-        const doc = await vscode.workspace.openTextDocument({
-          content: unitTests,
-          language: editor.document.languageId,
-        });
+        // Dynamically create the test file based on the selected file's name
+        const selectedFileUri = editor.document.uri;
+        const selectedFilePath = selectedFileUri.fsPath;
+        const path = require("path");
+        const dir = path.dirname(selectedFilePath);
+        const base = path.basename(
+          selectedFilePath,
+          path.extname(selectedFilePath)
+        );
+        const testFileName = `${base}.test${path.extname(selectedFilePath)}`;
+        const testFilePath = vscode.Uri.file(path.join(dir, testFileName));
+        await vscode.workspace.fs.writeFile(
+          testFilePath,
+          Buffer.from(testFileContent, "utf8")
+        );
+        const doc = await vscode.workspace.openTextDocument(testFilePath);
         await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
+        console.log(`Unit tests written to ${testFileName} successfully.`);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Azure OpenAI error: ${err.message}`);
       }
